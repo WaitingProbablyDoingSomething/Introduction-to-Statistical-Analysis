@@ -1,0 +1,684 @@
+# =======================================================================================
+# Introduction to Statistical Analysis, NTNU
+# Pei-Jen Lee Shaner, August 2026
+# Exploratory Data Analysis Exercise Steps 1-4: Outliers, Homogeneity, Normality, Zero Inflation
+# =======================================================================================
+#
+# THE STUDY
+# Live-trapping of grassland voles. 30 sites in 3 valleys; each site trapped on
+# 4 occasions (April, June, August, October). Response = number of voles caught.
+# Sampling effort (trap_nights) varies between visits.
+#
+# THE BIOLOGICAL QUESTION
+#   Does vole abundance depend on temperature and vegetation cover,
+#   and does grazing matter?
+#
+# -----------------------------------------------------------------------------
+# HOW TO USE AI IN THIS COURSE
+# -----------------------------------------------------------------------------
+# You are encouraged to use AI (e.g., Claude, ChatGPT, Gemini) throughout. 
+# But there is a right and a wrong way.
+#
+#   WRONG: "Here's my data, do the EDA and tell me which model to use."
+#          You get plausible-looking output you cannot defend, and you learn
+#          nothing that transfers to your own study system.
+#
+#   RIGHT: Three distinct jobs to delegate --
+#          (a) SYNTAX HELP    "How do I put two ggplots side by side?"
+#          (b) CONCEPT CHECK  "Explain why a Poisson GLM doesn't require the
+#                              response to be normally distributed."
+#          (c) ADVERSARY      "Here is my interpretation. What is the strongest
+#                              argument that I am wrong?"
+#
+# The rule for this course: YOU decide what the biology means. The AI can
+# write code and explain concepts, but it has never seen your field site and
+# does not know how your data were collected. Every AI claim about YOUR data
+# gets checked against YOUR data before it goes in your write-up.
+#
+# Watch for the PROMPT boxes (what to ask) and the VERIFY boxes (how to check
+# the answer). Answer every question in the space provided -- in words, not code.
+# =============================================================================
+
+#install.packages("tidyverse")
+library(tidyverse)
+
+# theme for all plots 
+theme_set(theme_bw(base_size = 12))
+
+# =============================================================================
+#### STEP 0 -- LOOK AT THE RAW FILE BEFORE YOU TRUST IT ####
+# =============================================================================
+# Nobody's data arrives clean. Before any statistics, find out what you have.
+
+voles_raw <- read_csv("https://web.ntnu.edu.tw/~pshaner/shares/Statistics_NTNU_2026/EDA%20exercise/vole_raw.csv", show_col_types = FALSE)
+
+glimpse(voles_raw)
+
+# Descriptive statistics for spotting data dispersion
+summary(voles_raw)
+
+# =============================================================================
+#### STEP 1 -- OUTLIERS ####
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Q1a. Let's focus on the response, voles, and the predictor, 
+#      eg_cover_pct (percent vegetation cover).  
+#      Six extreme values are hiding in these columns. Find them.
+#      Hints: What number do people traditionally type when a value is missing?
+#             Are there upper and lower bounds for percentage cover?
+#
+#      Write the column (variable name), row position, extreme value, and 
+#      what you think the true value was:
+#      (1) column ___________ row ___________ value _______ probable truth ____________
+#      (2) column ___________ row ___________ value _______ probable truth ____________
+#      (3) column ___________ row ___________ value _______ probable truth ____________
+#      (4) column ___________ row ___________ value _______ probable truth ____________
+#      (5) column ___________ row ___________ value _______ probable truth ____________
+#      (6) column ___________ row ___________ value _______ probable truth ____________
+#
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q1a:
+
+# Boxplot for raw data 
+p_out_1 <- ggplot(voles_raw) +
+  geom_boxplot(aes(x = "", y = voles), width = 0.5) +
+  geom_jitter(aes(x = "", y = voles), width = 0.12, height = 0, alpha = 0.5, shape = 1) +
+  labs(y = "Voles captured") 
+print(p_out_1)
+
+p_out_2 <- ggplot(voles_raw) +
+  geom_boxplot(aes(x = "", y = veg_cover_pct), width = 0.5) +
+  geom_jitter(aes(x = "", y = veg_cover_pct), width = 0.12, height = 0, alpha = 0.5, shape = 1) +
+  labs(y = "Vegetation cover (%)") 
+print(p_out_2)
+
+# Find the row positions of the outliers
+outliter.voles <- voles_raw %>% 
+  mutate(row = row_number()) %>% 
+  filter(voles == 999) %>% 
+  select(row, voles) %>%
+  print()
+
+outliter.veg <- voles_raw %>% 
+  mutate(row = row_number()) %>% 
+  filter(veg_cover_pct > 100) %>% 
+  select(row, veg_cover_pct) %>%
+  print()
+
+# -----------------------------------------------------------------------------
+# Q1b. Observe the residual (error) distribution using QQ plot and residual-vs-fitted plot.
+#      Can you point out the similarity between outliers in the raw data and in the residuals?
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q1b:
+
+# Fit a naive linear model to get residuals
+naive_mod <- lm(voles ~ veg_cover_pct, data=voles_raw)
+# Get simulated residuals
+install.packages("DHARMa")
+library(DHARMa)
+naive_sim_res <- simulateResiduals(fittedModel = naive_mod, n = 1000)
+# QQ plot
+plotQQunif(naive_sim_res)
+
+# -----------------------------------------------------------------------------
+# Q1c. How do you plan on handling the seven outlier values?
+#
+#      (1) exclude the seven records from the data set  
+#      (2) replace the seven values with possible truth
+#      (3) replace the seven values with the mean value for the given variable
+#
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q1c:
+
+voles_updated_1 <- voles_raw %>%
+  filter(voles != 999) %>% 
+  filter(veg_cover_pct < 100) %>% 
+  filter(temp_c < 50)
+
+voles_updated_2 <- voles_raw %>%
+  mutate(voles = if_else(voles == 999, NA, voles),
+         veg_cover_pct = if_else(veg_cover_pct > 100, veg_cover_pct/10, veg_cover_pct),
+         temp_c = if_else(temp_c > 100, temp_c/10, temp_c)) 
+
+voles_updated_3 <- voles_raw %>%
+  mutate(voles.na = if_else(voles == 999, NA, voles),
+         veg_cover_pct.na = if_else(veg_cover_pct > 100, NA, veg_cover_pct),
+         temp_c.na = if_else(temp_c > 50, NA, temp_c)) %>%
+  mutate(voles = if_else(is.na(voles.na), mean(voles.na, na.rm=TRUE), voles.na),
+         veg_cover_pct = if_else(is.na(veg_cover_pct.na), mean(veg_cover_pct.na, na.rm=TRUE), veg_cover_pct.na),
+         temp_c = if_else(is.na(temp_c.na), mean(temp_c.na, na.rm=TRUE), temp_c.na))
+
+
+# -----------------------------------------------------------------------------
+# Q1d. Let's produce the final data set (no outlier issues)
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q1d:
+voles_final <- #voles_updated_1, voles_updated_2, voles_updated_3?
+
+write.csv(voles_final, "voles_final.csv")
+
+# =============================================================================
+#### Understanding Q-Q plot #### 
+# =============================================================================
+# A Quantile-Quantile (Q-Q) plot is a scatter plot used to assess whether a dataset 
+# follows a specific theoretical distribution (most commonly a normal distribution) 
+# or whether two sample distributions share the same underlying shape.
+
+# Manually create a Q-Q plot based on standard normal distribution (z score)
+# Set seed for reproducibility across simulation
+set.seed(12)
+
+# Define parameters for standard normal distribution Normal(0, 1)
+mu <- 0
+sigma <- 1
+probabilities <- seq(0.01, 0.99, length.out=1000)
+# Theoretical quantiles of expected residuals if they follow a normal distribution
+theoretical_z <- qnorm(probabilities, mean = mu, sd = sigma) 
+# Empirical quantiles of observed residuals in z scale 
+empirical_z <- as.vector(quantile(scale(naive_mod$residuals), probs = probabilities))
+
+# Q-Q plot using standard normal distribution
+ggplot() +
+  geom_point(aes(x=theoretical_z, y=empirical_z)) +
+  geom_line(aes(x=theoretical_z, y=theoretical_z), linetype=1, color="red")
+
+# Manually create a Q-Q plot based on uniform distribution [0,1] (DHARMa's method)
+# Emprical quantiles of simulated observed residuals
+empirical_u <- sort(naive_sim_res$scaledResiduals)
+
+# Calculate theoretical uniform quantiles (DHARMa's method)
+theoretical_u <- (1:length(empirical_u)) / (length(empirical_u) + 1) 
+
+# Q-Q plot from DHARMa using uniform distribution
+ggplot() +
+  geom_point(aes(x=theoretical_u, y=empirical_u)) +
+  geom_line(aes(x=c(0,1), y=c(0,1)), linetype=1, color="red")
+
+# =============================================================================
+#### STEP 2 -- HOMOGENEITY OF VARIANCE ####
+# =============================================================================
+
+voles_final <- read_csv("voles_final.csv")
+
+# -----------------------------------------------------------------------------
+# Q2a.Compare the variance across different levels of vegetation cover.
+#     Is one group having much larger variance than the other (do we have heteroscedasticity)? 
+#     How to deal with this unequal variance? 
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q2a:
+
+# Descriptive statistics:
+voles_final_desc <- voles_final %>%
+  drop_na(voles) %>%
+  mutate(veg_cover_level=cut_number(veg_cover_pct, 5)) %>%
+  group_by(veg_cover_level) %>%
+  summarise(n = length(voles), mean = mean(voles), variance = var(voles),
+            .groups = "drop") %>%
+  print()
+
+# -----------------------------------------------------------------------------
+# Q2b.For count data such as voles, the ratio of variance divided by mean is 
+#     called "Dispersion index": 
+#     Dispersion index = 1 (variance = mean) -> random count process, for which
+#     Poisson error distribution is appropriate  
+#     Dispersion index > 1 (variance > mean) -> over-disperson, for which 
+#     negative binomial is appropriate
+#     Dispersion index < 1 (variance < mean) -> under-disperson, for which
+#     quasi-Poisson, log-transformed Gaussian may help
+#     
+#     What is the dispersion index across different levels of vegetation cover?
+#     Is Poisson, negative binomial or other error distribution more appropriate?  
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q2b:
+voles_final_disperson <-  voles_final_desc %>%
+  mutate(var_mean_ratio = variance / mean) %>%
+  print()
+
+# Fit negative binomial model with group-specific dispersion (heteroscedacity)
+#install.packages("glmmTMB")
+#install.packages("emmeans")
+library(glmmTMB)
+library(emmeans)
+
+# Count data with group specific dispersion
+voles_fit <- glmmTMB(voles ~ -1 + veg_cover_pct, 
+                     dispformula = ~ -1 + veg_cover_pct, # dispersion modeled as a function of vegetation cover 
+                     family = nbinom2, 
+                     data = voles_final)
+
+summary(voles_fit)
+
+# Visualize errors
+voles_emm <- as.data.frame(emmeans(voles_fit, ~veg_cover_pct, at = list(veg_cover_pct = seq(0,100,1)), type = "response")) %>% print()
+
+ggplot() +
+  geom_line(data = voles_emm, aes(x = veg_cover_pct, y = response), color="black") +
+  geom_ribbon(data = voles_emm, aes(x = veg_cover_pct, ymin = asymp.LCL, ymax = asymp.UCL), 
+              alpha=0.5, fill="grey50") +
+  geom_point(data=drop_na(voles_final, voles), aes(x=veg_cover_pct, y=voles), shape = 1) +
+  labs(x = "Vegetation cover (%)", y = "Vole abundance") 
+
+# -----------------------------------------------------------------------------
+# Q2c.How does the 95%CIs change from a model incorporating heteroscedasticity 
+#     to one assuming homoscedasticity?
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q2c:
+
+# Count data with constant dispersion
+voles_fit2 <- glmmTMB(voles ~ -1 + veg_cover_pct,
+                      dispformula = ~ -1, # constant dispersion
+                      family = nbinom2, 
+                      data = voles_final)
+
+summary(voles_fit2)
+
+# Visualize errors
+voles_emm2 <- as.data.frame(emmeans(voles_fit2, ~veg_cover_pct, at = list(veg_cover_pct = seq(0,100,1)), type = "response")) %>% print()
+
+ggplot() +
+  geom_line(data = voles_emm2, aes(x = veg_cover_pct, y = response), color="black") +
+  geom_ribbon(data = voles_emm2, aes(x = veg_cover_pct, ymin = asymp.LCL, ymax = asymp.UCL), 
+              alpha=0.5, fill="grey50") +
+  geom_point(data=drop_na(voles_final, voles), aes(x=veg_cover_pct, y=voles), shape = 1) +
+  labs(x = "Vegetation cover (%)", y = "Vole abundance") 
+
+# =============================================================================
+#### Understanding residual vs fitted plot ####  
+# =============================================================================
+# A residuals vs. fitted plot is a scatter plot used to evaluate whether a model 
+# satisfies the fundamental assumptions of constant variance (homoscedasticity).
+
+# The residuals vs. fitted plot from the negative binomial model using DHARMa method
+# DHARMa's residuals vs. fitted plot uses quantile regressions 
+# Quantile regression is a statistical method that estimates specific percentiles,
+# such as the 25th percentile, median, or 75th percentile, of a response variable, 
+# rather than just its mean
+# Quantile regression is a useful tool for exploratory data analysis (EDA) because 
+# it allows you to visualize heteroscedasticity without relying on formal statistical 
+# tests, which often carry specific assumptions e.g., no outliers, normality of 
+# error distribution
+
+# install.packages("DHARMa")
+library(DHARMa)
+# Count data with group specific dispersion
+voles_sim_res <- simulateResiduals(fittedModel = voles_fit, n = 1000)
+plotResiduals(voles_sim_res)
+
+# Count data with constant dispersion
+voles_sim_res2 <- simulateResiduals(fittedModel = voles_fit2, n = 1000)
+plotResiduals(voles_sim_res2)
+
+#extract simulated scaled residuals
+voles_nb_resids <- voles_sim_res$scaledResiduals 
+
+#extract the model's fitted values and turn them into scaled ranks 
+voles_nb_fitted <- rank(voles_sim_res$fittedPredictedResponse)/(length(voles_sim_res$fittedPredictedResponse)+1) 
+
+# Fit quantile regression at 1st, 2nd and 3rd quanfiles (tau = c(0.25, 0.50, 0.75))
+#install.packages("qgam")
+library(qgam)
+
+q1_fit <- rq(voles_nb_resids  ~ voles_nb_fitted, tau = 0.25)
+q2_fit <- rq(voles_nb_resids  ~ voles_nb_fitted, tau = 0.5)
+q3_fit <- rq(voles_nb_resids  ~ voles_nb_fitted, tau = 0.75)
+
+q1_pred <- predict(q1_fit, newdata = data.frame(voles_nb_fitted = voles_nb_fitted), 
+                   interval = "confidence", level = 0.95) 
+q2_pred <- predict(q2_fit, newdata = data.frame(voles_nb_fitted = voles_nb_fitted), 
+                   interval = "confidence", level = 0.95) 
+q3_pred <- predict(q3_fit, newdata = data.frame(voles_nb_fitted = voles_nb_fitted), 
+                   interval = "confidence", level = 0.95) 
+
+
+q_pred <- rbind.data.frame(q1_pred, q2_pred, q3_pred) %>% 
+  mutate(voles_nb_fitted = rep(voles_nb_fitted, time=3),
+         tau=rep(c("Q1", "Q2", "Q3"), each=118))
+
+# Manually create residuals vs fitted plot 
+# This plot is similar to but not exactly the DHARMa method, which is too complicate
+# for the purpose illustrating residuals vs fitted plot
+ggplot() +
+  # 1. Plot the raw background residual points
+  geom_point(aes(x = voles_nb_fitted, y = voles_nb_resids), color = "gray50", alpha = 0.5) +
+  
+  # 2. Add the 95% CI Ribbons from your manually built dataframe
+  geom_ribbon(data=q_pred, aes(x = voles_nb_fitted, ymin = lower, ymax = higher, fill = tau), 
+              alpha = 0.15) +
+  
+  # 3. Add the precise Quantile Regression Lines 
+  geom_line(data = q_pred, 
+            aes(x = voles_nb_fitted, y = fit, color = tau), 
+            linewidth = 1.2) +
+  
+  # Custom aesthetic configurations
+  scale_color_manual(values = c("Q1" = "blue", "Q2" = "black", "Q3" = "red"),
+                     labels = c("25th Percentile", "Median (50th)", "75th Percentile")) +
+  scale_fill_manual(values = c("Q1" = "blue", "Q2" = "black", "Q3" = "red"),
+                    labels = c("25th Percentile", "Median (50th)", "75th Percentile")) +
+  labs(x = "Fitted Values (voles_nb_fitted)", y = "Residuals (voles_nb_resids)") 
+
+# =============================================================================
+#### STEP 3 -- NORMALITY ####
+# =============================================================================
+# Normality assessment guide you towards appropriate model family:
+# Gaussian models vs non-Gaussian models
+
+voles_final <- read_csv("voles_final.csv") 
+
+# -----------------------------------------------------------------------------
+# Q3a. For count data such as voles, Poisson/negative binomial models are often
+#      appropriate given that residuals (errors) are often not normally distributed.
+#      Run the code below and observe the distribution of raw vole count and 
+#      residuals plot from the negative binomial model, voles ~ veg_cover_pct
+#      How does the QQ plot from the negative binomial model here compare to 
+#      the naive linear model (Q1b, lines 116-125)? 
+#      How does the histogram of raw vole count data compare to that of residuals
+#      from the negative binomial model?
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q3a:
+
+p_hist_1 <- ggplot(drop_na(voles_final, voles)) +
+  geom_histogram(aes(x = voles), binwidth = 1, colour = "white", fill = "grey35") +
+  labs(x = "Vole abundance", y = "Number of observations")
+print(p_hist_1) 
+
+# Fit a negative binomial model to get residuals
+library(glmmTMB)
+voles_fit <- glmmTMB(voles ~ -1 + veg_cover_pct, 
+                     dispformula = ~ -1 + veg_cover_pct, # dispersion modeled as a function of vegetation cover 
+                     family = nbinom2, 
+                     data = voles_final)
+
+summary(voles_fit)
+
+# Get simulated residuals
+# install.packages("DHARMa")
+library(DHARMa)
+voles_sim_res <- simulateResiduals(fittedModel = voles_fit, n = 1000)
+plotQQunif(voles_sim_res) 
+
+voles_sim_res_df <- data.frame(resids=voles_sim_res$scaledResiduals)
+
+p_hist_resid_1 <- ggplot(data = voles_sim_res_df) +
+  geom_histogram(aes(x = resids), binwidth = 0.1, colour = "white", fill = "grey35") +
+  labs(x = "Residuals", y = "Number of observations")
+print(p_hist_resid_1)
+
+
+# -----------------------------------------------------------------------------
+# Q3b. Data transform to meet normality; is it appropriate for the voles data?
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q3b:
+voles_final <-  voles_final %>% mutate(voles.log = log(voles+1))
+
+p_hist_2 <- ggplot(drop_na(voles_final, voles)) +
+  geom_histogram(aes(x = voles.log), binwidth = 1, colour = "white", fill = "grey35") +
+  labs(x = "Voles captured (log)", y = "Number of observations")
+print(p_hist_2) 
+
+# -----------------------------------------------------------------------------
+# Q3c. Let's switch to temperature data.
+#      Ambient temperature is known to decrease at a constant rate with increasing elevation.
+#      Run the code below and observe whether the raw temperature data and the residuals 
+#      from the linear model, temp_c ~ elev_m, are normally distributed
+#      Compare the two data sets and their models: voles ~ veg_cover_pct and temp_c ~ elev_m; 
+#      which one is more suited for Gaussian model and which one for negative binomial model, and why? 
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q3c:
+
+p_hist_3 <- ggplot(data=voles_final) +
+  geom_histogram(aes(x = temp_c), binwidth = 2, colour = "white", fill = "grey35") +
+  labs(x = "Temperature (Celcius)", y = "Number of observations")
+print(p_hist_3) 
+
+# Fit a proper general linear model (Gaussian model) with the updated voles data to get residuals
+temp_fit <- lm(temp_c ~ elev_m, data = voles_final)
+
+summary(temp_fit)
+
+# Get simulated residuals
+# install.packages("DHARMa")
+library(DHARMa)
+temp_sim_res <- simulateResiduals(fittedModel = temp_fit, n = 1000)
+plot(temp_sim_res) 
+
+temp_sim_res_df <- data.frame(elev_m=voles_final$elev_m,
+                         temp_resids=temp_sim_res$fittedResiduals)
+
+p_hist_resid_2 <- ggplot(data=temp_sim_res_df) +
+  geom_histogram(aes(x = temp_resids), binwidth = 1, colour = "white", fill = "grey35") +
+  labs(x = "Residuals", y = "Number of observations")
+print(p_hist_resid_2)
+
+
+# =============================================================================
+#### STEP 4 -- ZERO INFLATION ####
+# =============================================================================
+
+voles_final <- read_csv("voles_final.csv") 
+
+# -----------------------------------------------------------------------------
+# Q4a. How many zeros do we have for the vole counts? 
+#      How many zeros should we expect if the vole counts 
+#      follows a random process (Poisson count process)?
+#      Give two possible reasons for this excess of zeros? 
+#      1) 
+#      2)
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q4a:
+
+obs_zero <- sum(voles_final$voles == 0, na.rm = TRUE) / nrow(drop_na(voles_final, voles))
+mean_voles      <- mean(voles_final$voles, na.rm = TRUE)
+cat(sprintf(
+  "\nObserved zeros: %.1f%%   Poisson(mean=%.2f) predicts: %.1f%%\n",
+  100 * obs_zero, mean_voles, 100 * dpois(0, mean_voles)))
+
+# Visualize theoretical Poisson distribution for the vole counts
+# 1. Set parameter and range
+lambda <- mean_voles # mean vole counts
+x <- seq(min(voles_final$voles, na.rm = TRUE), 
+         max(voles_final$voles, na.rm = TRUE), 1) # range of vole counts 
+
+# 2. Create data frame with theoretical probabilities
+voles.poi.df <- data.frame(
+  x = x,
+  prob = dpois(x, lambda = lambda)
+) 
+
+# 3. Plot theoretical Poisson probability 
+p_hist_theoretical <- ggplot(data=voles.poi.df) +
+  geom_bar(aes(x = x, y = prob), stat = "identity", colour = "white", fill = "grey35", width=1) +
+  scale_x_continuous(breaks = c(0,10,20,30)) +
+  labs(x = "Vole abundance", y = "Probability")
+print(p_hist_theoretical) 
+
+# -----------------------------------------------------------------------------
+# Q4b. Are zeros equally distributed across the predictor, vegetation cover, or grazing? 
+#      Potential biological reasons for these patterns?    
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q4b:
+
+# Now the part that matters: WHERE are the zeros?
+voles_final <- voles_final %>%
+  mutate(is_zero = ifelse(voles == 0, 1, 0)) 
+
+voles_zero_freq1 <- voles_final %>% 
+  drop_na(voles) %>%
+  mutate(veg_cover_level=cut_number(veg_cover_pct, 5)) %>%
+  group_by(veg_cover_level) %>%
+  summarise(n = n(), n_zero = sum(is_zero), n_positive = n-n_zero,
+            pct_zero = round(n_zero/n, 2), .groups = "drop") %>%
+  pivot_longer(cols=3:4, values_to = "freq", names_to = "type") %>%
+  print()
+
+ggplot(data=voles_zero_freq1) +
+  geom_bar(aes(x = veg_cover_level, y = freq, fill = type), stat="identity") +
+  scale_fill_manual(values = c("grey70", "firebrick"),
+                    labels = c("Voles > 0", "Voles = 0"), name = NULL) +
+  labs(x = NULL, y = "Number of observations") %>%
+  print()
+
+voles_zero_freq2 <- voles_final %>% 
+  drop_na(voles) %>%
+  group_by(grazing) %>%
+  summarise(n = n(), n_zero = sum(is_zero), n_positive = n-n_zero,
+            pct_zero = round(n_zero/n, 2), .groups = "drop") %>%
+  pivot_longer(cols=3:4, values_to = "freq", names_to = "type") %>%
+  print()
+
+ggplot(data=voles_zero_freq2) +
+  geom_bar(aes(x = grazing, y = freq, fill = type), stat="identity") +
+  scale_fill_manual(values = c("grey70", "firebrick"),
+                    labels = c("Voles > 0", "Voles = 0"), name = NULL) +
+  labs(x = NULL, y = "Number of observations") %>%
+  print()
+
+# -----------------------------------------------------------------------------
+# Q4c. Excess zeros, if originated from biological processes, may require 
+#      a zero-inflated model (a modified Poisson/negative binomial model). 
+#      A zero-inflated model has two parts: 
+#      one part models whether the site can be occupied at all (structural zero)
+#      one part models how many animals are caught if it is occupied (positive count + sampling zero)
+#      Given your answer to Q4b, would you model structural zero as a function of grazing, and why? 
+#      Note that you reach this statistical decision from BIOLOGY, not from some math
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q4c:
+
+# Fit negative binomial model with group-specific dispersion (heteroscedacity)
+#install.packages("glmmTMB")
+library(glmmTMB)
+#install.packages("emmeans")
+library(emmeans)
+
+voles_zinb <- glmmTMB(voles ~ -1 + grazing + veg_cover_pct, 
+                     dispformula = ~ -1 + veg_cover_pct, 
+                     ziformula = ~ -1 + grazing, 
+                     family = nbinom2, 
+                     data = voles_final)
+
+summary(voles_zinb)
+
+library(DHARMa)
+voles_sim_res.zinb <- simulateResiduals(fittedModel = voles_zinb, n = 1000)
+plotResiduals(voles_sim_res.zinb) 
+
+# -----------------------------------------------------------------------------
+# Q4d. Compare the negative binomial model and zero-inflated negative binomial model.
+#      Have you noticed any differences in homogeneity of variance with or without zero-inflation? 
+#      Have you noticed any differences in predicted responses with or without zero-inflation?
+#      If so, how would you explain the differences? 
+# -----------------------------------------------------------------------------
+
+# YOUR CODE HERE for Q4d:
+
+# nb model
+voles_nb <- glmmTMB(voles ~ -1 + grazing + veg_cover_pct, 
+                      dispformula = ~ -1 + veg_cover_pct,
+                      family = nbinom2, 
+                      data = voles_final)
+
+summary(voles_nb)
+
+library(DHARMa)
+voles_sim_res.nb <- simulateResiduals(fittedModel = voles_nb, n = 1000)
+plotResiduals(voles_sim_res.nb) 
+
+# Visualize predicted mean voles
+# zinb model
+
+# 1. Count Component (Conditional on presence)
+# Predicts mean count on the response scale (type = "response")
+voles_zinb_emm.count <- as.data.frame(emmeans(voles_zinb,  ~ veg_cover_pct | grazing, 
+  mode = "count", type = "response",
+  at = list(veg_cover_pct = seq(min(voles_final$veg_cover_pct), 
+                                max(voles_final$veg_cover_pct), 
+                                length.out = 50))))
+
+# 2. Zero-Inflation Component (Structural zero probability)
+# Mode "prob0" extracts the probability of structural zero
+voles_zinb_emm.zero <- as.data.frame(emmeans(voles_zinb, ~ grazing, mode = "prob0", type = "response"))
+
+# Visualize count model
+ggplot() +
+  geom_jitter(data = drop_na(voles_final, voles), aes(x = veg_cover_pct, y = voles), shape = 1, height = 0.25) +
+  geom_line(data = voles_zinb_emm.count, aes(x = veg_cover_pct, y = response, color = grazing), linewidth = 1) +
+  geom_ribbon(data = voles_zinb_emm.count, aes(x = veg_cover_pct, ymin = asymp.LCL, ymax = asymp.UCL, fill=grazing), alpha=0.5) +
+  scale_color_manual(values = c("orange", "saddlebrown")) +
+  scale_fill_manual(values = c("orange", "saddlebrown")) +
+  labs(x = "Vegetation cover (%)", y = "Vole abundance") +
+  facet_wrap(~grazing) +
+  theme(legend.position = "none")
+
+# Visualize zero-inflation model
+ggplot(data = voles_zinb_emm.zero, aes(x = grazing, y = response)) +
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL), size = 0.8) +
+  labs(x = "Grazing", y = "Probability of vole absence")
+
+
+# nb model
+voles_nb_emm <- as.data.frame(emmeans(voles_nb, ~ veg_cover_pct | grazing, 
+                                      at=list(veg_cover_pct=seq(min(voles_final$veg_cover_pct), max(voles_final$veg_cover_pct), 1)), type = "response")) %>% print()
+
+# Visualize nb model
+ggplot() +
+  geom_jitter(data = voles_final, aes(x = veg_cover_pct, y = voles), shape = 1, height = 0.25) +
+  geom_line(data = voles_nb_emm, aes(x = veg_cover_pct, y = response, color = grazing), linewidth = 1) +
+  geom_ribbon(data = voles_nb_emm, aes(x = veg_cover_pct, ymin = asymp.LCL, ymax = asymp.UCL, fill=grazing), alpha=0.5) +
+  scale_color_manual(values = c("orange", "saddlebrown")) +
+  scale_fill_manual(values = c("orange", "saddlebrown")) +
+  labs(x = "Vegetation cover (%)", y = "Vole abundance") +
+  facet_wrap(~grazing) +
+  theme(legend.position = "none")
+
+# =============================================================================
+# AI PROMPT for STEP 1-4 
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# >>> AI PROMPT BOX 1 -- delegating SYNTAX, keeping JUDGEMENT
+#
+# A weak prompt: "clean my data" (with voles_raw.csv uploaded)
+#
+# A strong prompt:
+#
+#   "I have a tibble `voles_raw` with columns voles (count), veg_cover_pct
+#    (0-100), temp_c (air temperature, Celsius). I believe there are
+#    data-entry errors: a percentage above 100, an implausible temperature,
+#    and missing-value code in the vole count. Write tidyverse
+#    code that flags these rows for inspection WITHOUT deleting them, so I
+#    can see each suspect row in full and decide case by case. Explain why
+#    flagging is preferable to filtering here."
+#
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# >>> AI PROMPT BOX 2 -- now that you know your data, ask a real question
+#
+# A weak prompt: "what model should I use for my data?" (with voles_final.csv uploaded) 
+#
+# A strong prompt:
+#
+#   "I have vole trapping counts from 30 sites, 4 visits each (n=120, including two NA).
+#    I would like to assess how vole counts vary with grazing (grazed/ungraded sites),
+#    vegetation cover (0-100%) and temperature. 
+#    The data on vole counts has a dispersion (variance/mean = ___), which is larger for grazed sites. 
+#    ___% of the vole counts are zeros, and they concentrate in grazed sites.
+#    Propose 2-3 candidate model structures, state what each one assumes
+#    about the error distributions, homogeneity of variance, excess zeros, and tell me what I would 
+#    need to check to choose between them. Do not recommend a single 'best' model."
+#
+# -----------------------------------------------------------------------------
